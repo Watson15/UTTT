@@ -16,9 +16,19 @@ tab10_names = list(mcolors.TABLEAU_COLORS) # create a list of colours
 # author: Aidan
 # date: Nov 28 2023
 # notes: Using line_completer.py as the baseline then added my own stuff in
-#will look into using a tree search
+# will look into using a tree search
+# https://michaelxing.com/UltimateTTT/v3/ai/ bot seems to try and get two in a row for squares it is tring to get
+# for squares it is not trying to get it puts them in bad squares to stop me from getting the square while also trying
+# to land me in a bad sqaure to play in. 
+# the AI seems to think the middle square in the middle is the best first move
+# The best response to that is to put the other player into the corner square
+# appears to be a good strategy to not repeat squares until you have to as it can allow the oponent to get two in a row
+# dont make a move that will result in oponent putting you right back where you were when you dont want to be there
+# all about wanting oponent to make forcing moves. Or a good move for them results in a better move for you
+# maybe make a bot that tries to make a move that forces the opponent to make a move that is bad for them rather
+# than making a move that is good for you
 
-class line_completer_bot:
+class BotKiller:
     '''
     1) tries to complete lines
     2) tries to block opponents
@@ -42,8 +52,6 @@ class line_completer_bot:
         return tuple(self.heuristic_mini_to_major(board_state = board_dict['board_state'],
                                                   active_box = board_dict['active_box'],
                                                   valid_moves = board_dict['valid_moves']))
-    
-    
     ''' --------- generally useful bot functions ------------ '''
     
     def _check_line(self, box: np.array) -> bool:
@@ -118,7 +126,6 @@ class line_completer_bot:
             probs.append(self.box_probs[_valid[0],_valid[1]])
         probs /= sum(probs) # normalize
         return probs
-    
     ''' ------------------ bot specific logic ---------------- '''
     
     def heuristic_mini_to_major(self, board_state: np.array,
@@ -127,7 +134,6 @@ class line_completer_bot:
         '''
         either applies the heuristic to the mini-board or selects a mini-board (then applies the heuristic to it)
         '''
-
         if active_box != (-1,-1):
             # look just at the mini board
             mini_board = self.pull_mini_board(board_state, active_box)
