@@ -27,6 +27,8 @@ tab10_names = list(mcolors.TABLEAU_COLORS) # create a list of colours
 # all about wanting oponent to make forcing moves. Or a good move for them results in a better move for you
 # maybe make a bot that tries to make a move that forces the opponent to make a move that is bad for them rather
 # than making a move that is good for you
+# the 9 major squares some or more valuable then others. Winning those squares is a priority
+# The squares are ranked at start and can change based on game state
 
 class BotKiller:
     '''
