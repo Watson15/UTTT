@@ -224,14 +224,15 @@ class BotKiller:
     def heuristic_mini_to_major(self, board_state: np.array,
                                 active_box: tuple,
                                 valid_moves: list) -> tuple:
+        ''' main function
+        block opponent, try to take a corner, else random
         '''
-        either applies the heuristic to the mini-board or selects a mini-board (then applies the heuristic to it)
-        '''
+        # if we don't provide active box, we'd have to infer it
         if active_box != (-1,-1):
             # look just at the mini board
-            mini_board = self.pull_mini_board(board_state, active_box)
+            temp_miniboard = self.pull_mini_board(board_state, active_box)
             # look using the logic, select a move
-            move = self.mid_heuristic(mini_board)
+            move = self.mid_heuristic(temp_miniboard)
             # project back to original board space
             return (move[0] + 3 * active_box[0],
                     move[1] + 3 * active_box[1])
@@ -242,63 +243,79 @@ class BotKiller:
 
             # call this function with the self-imposed active box
             return self.heuristic_mini_to_major(board_state = board_state,
-                                                active_box = imposed_active_box,
-                                                valid_moves = valid_moves)
-
+                                           active_box = imposed_active_box,
+                                           valid_moves = valid_moves)
+        
     def major_heuristic(self, board_state: np.array) -> tuple:
-        '''
-        determines which miniboard to play on
-        note: having stale boxes was causing issues where the logic wanted to block
-              the opponent but that mini-board was already finished (it was stale)
-        '''
+        ''' determines which miniboard to play on'''
         z = self.get_finished(board_state)
         # finished boxes is a tuple of 3 masks: self, opponent, stale 
         self_boxes  = z[0]
         opp_boxes   = z[1]
         stale_boxes = z[2]
         
-        # identify imminent wins for self
-        imminent_wins = self.complete_line(self_boxes)
+        # identify imminent wins
+        imminent_wins = self.block_imminent(self_boxes + opp_boxes)
         
         # make new list to remove imminent wins that point to stale boxes
-        stale_boxes = zip(*np.where(stale_boxes))
+        stale_boxes = list(zip(*np.where(stale_boxes)))
         for stale_box in stale_boxes:
             if stale_box in imminent_wins:
                 imminent_wins.remove(stale_box)
         if len(imminent_wins) > 0:
-            return imminent_wins[np.random.choice(len(imminent_wins), p=self.get_probs(imminent_wins))]
-        
-        # attempt to block
-        imminent_wins = self.complete_line(opp_boxes)
-        # make new list to remove imminent wins that point to stale boxes
-        stale_boxes = zip(*np.where(stale_boxes))
+            return imminent_wins[np.random.choice(len(imminent_wins))]
+
+        # take center if available
+        internal_valid = list(zip(*self.get_valid(self_boxes + opp_boxes)))
         for stale_box in stale_boxes:
-            if stale_box in imminent_wins:
-                imminent_wins.remove(stale_box)
-        if len(imminent_wins) > 0:
-            return imminent_wins[np.random.choice(len(imminent_wins), p=self.get_probs(imminent_wins))]
+            if stale_box in internal_valid:
+                internal_valid.remove(stale_box)
+
+        if (1,1) in internal_valid:
+            return (1,1)
+
+        # else take random corner
+        _corners = [(0,0),(0,2),(0,2),(2,2)]
+        _valid_corner = list()
+
+        for _corner in _corners:
+            if _corner in internal_valid:
+                _valid_corner.append(_corner)
+        if len(_valid_corner) > 0:
+            return _valid_corner[np.random.choice(len(_valid_corner))]
 
         # else take random
-        internal_valid = list(zip(*self.get_valid(self_boxes + opp_boxes)))
-        return internal_valid[np.random.choice(len(internal_valid), p=self.get_probs(valid_moves))]
+        return internal_valid[np.random.choice(len(internal_valid))]
         
-    def mid_heuristic(self, mini_board: np.array) -> tuple:
-        ''' main mini-board logic
-        attempt to finish the box (biases to center and corners)
-        attempt to block opponent (again, with bias)
-        randomly take a move (with bias)
+    def mid_heuristic(self, miniboard: np.array) -> tuple:
+        ''' main logic '''
+        # block imminent wins on this miniboard
+        imminent_wins = self.block_imminent(miniboard)
+        if len(imminent_wins) > 0:
+            return imminent_wins[np.random.choice(len(imminent_wins))]
+
+        # take center if available
+        internal_valid = list(zip(*self.get_valid(miniboard)))
+        if (1,1) in internal_valid:
+            return (1,1)
+
+        # else take random corner
+        _corners = [(0,0),(0,2),(0,2),(2,2)]
+        _valid_corner = list()
+
+        for _corner in _corners:
+            if _corner in internal_valid:
+                _valid_corner.append(_corner)
+        if len(_valid_corner) > 0:
+            return _valid_corner[np.random.choice(len(_valid_corner))] # must convert back to full board tuple
+
+        # else take random
+        return internal_valid[np.random.choice(len(internal_valid))]
+
+    def move(self, board_dict: dict) -> tuple:
+        ''' wrapper
+        apply the logic and returns the desired move
         '''
-        # try to complete a line on this miniboard
-        imminent_wins = self.complete_line(mini_board)
-        if len(imminent_wins) > 0:
-            return imminent_wins[np.random.choice(len(imminent_wins))]
-
-        ''' attempt to block'''
-        imminent_wins = self.complete_line(mini_board * -1) # pretend to make lines from opponent's perspective
-        if len(imminent_wins) > 0:
-            return imminent_wins[np.random.choice(len(imminent_wins))]
-
-        # else play randomly
-        valid_moves = list(zip(*self.get_valid(mini_board)))
-        return valid_moves[np.random.choice(len(valid_moves), p=self.get_probs(valid_moves))]
-
+        return tuple(self.heuristic_mini_to_major(board_state = board_dict['board_state'],
+                                                  active_box = board_dict['active_box'],
+                                                  valid_moves = board_dict['valid_moves']))
