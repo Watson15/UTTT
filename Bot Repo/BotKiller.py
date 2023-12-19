@@ -147,6 +147,8 @@ class BotKiller:
         probs /= sum(probs) # normalize
         return probs
     
+    ''' ------------------ bot specific logic ---------------- '''
+    
     def ChooseBestMajorSquare (self, board_state: np.array, active_box: tuple, valid_moves: list):
         ''' chooses the best major square to play in based on the current board state'''
         # if the active box is not the whole board
