@@ -1,6 +1,7 @@
 ''' core imports '''
 import numpy as np
 import matplotlib.pyplot as plt
+import queue
 
 ''' development imports'''
 from time import perf_counter
@@ -37,7 +38,8 @@ class BotKiller:
     3) it uses a probability distribution to preferentially play center and corner squares.
        the prob-dist is also used whenever there are multiple ways to complete/block a line
     '''
-    
+    MPQueue = queue.PriorityQueue() #put values in negative to get max
+    #key is value given and the actual value is the move
     ''' ------------------ required function ---------------- '''
     
     def __init__(self,name: str = 'Chekhov') -> None:
@@ -46,7 +48,10 @@ class BotKiller:
         self.box_probs = np.ones((3,3)) # edges
         self.box_probs[1,1] = 4 # center
         self.box_probs[0,0] = self.box_probs[0,2] = self.box_probs[2,0] = self.box_probs[2,2] = 2 # corners
-        
+        self.MajorSquareRank = np.array([[2,1,2],[1,3,1],[2,1,2]])#middle most valuable, then corners then edges
+        #because 4 moves are made before start may be worth anaylizing the board and changing the rank of the squares
+        self.GameState = np.zeros((3,3))#State of major boxes. (i.e. the total game state of the board)
+    
     def move(self, board_dict: dict) -> tuple:
         ''' wrapper
         apply the logic and returns the desired move
@@ -106,6 +111,19 @@ class BotKiller:
         # return finished boxes (separated by their content)
         return (opp_boxes*-1, self_boxes, stale_boxes)
     
+    def get_num_finished(self, board_state: np.array):
+        ''' returns a list of the number of finished boxes for each player'''
+        Boxes = [0,0,0]
+        for r in range(3):
+            for c in range(3):
+                if(board_state[r,c] == 1):
+                    Boxes[0]+=1
+                elif(board_state[r,c] == -1):
+                    Boxes[1]+=1
+                else:
+                    Boxes[2]+=1
+        return Boxes
+
     def complete_line(self, mini_board: np.array) -> list:
         ''' completes a line if available '''
         # loop through valid moves with hypothetic self position there.
@@ -128,6 +146,79 @@ class BotKiller:
             probs.append(self.box_probs[_valid[0],_valid[1]])
         probs /= sum(probs) # normalize
         return probs
+    
+    def ChooseBestMajorSquare (self, board_state: np.array, active_box: tuple, valid_moves: list):
+        ''' chooses the best major square to play in based on the current board state'''
+        # if the active box is not the whole board
+        if active_box != (-1,-1):
+            # look just at the mini board
+            mini_board = self.pull_mini_board(board_state, active_box)
+            # look using the logic, select a move
+            move = self.ChooseBestMiniSquare(mini_board)
+            # project back to original board space
+            return (move[0] + 3 * active_box[0],
+                    move[1] + 3 * active_box[1])
+
+        else:
+            # use heuristic on finished boxes to select which box to play in
+            imposed_active_box = self.major_heuristic(board_state)
+
+            # call this function with the self-imposed active box
+            return self.ChooseBestMajorSquare(board_state = board_state,
+                                                active_box = imposed_active_box,
+                                                valid_moves = valid_moves)
+
+    def CalculateBoardState(self, board_state: np.array):
+        ''' calculates the current state of the board for Major Square Heuristic'''
+        for i in range(3):
+            for j in range(3):
+                self.GameState[i,j] = self.CalculateMiniBoardState(self.pull_mini_board(board_state, (i,j)))
+                '''if (self.GameState[i,j] == 1):
+                    self.MajorSquareRank[i,j] = 1
+                elif(self.GameState[i,j] == -1):
+                    self.MajorSquareRank[i,j] = -1
+                elif(self.GameState[i,j] == 0):
+                    self.MajorSquareRank[i,j] = 0
+                else:
+                    self.MajorSquareRank[i,j]+=self.GameState[i,j]#need to test this. See if its any good'''
+                    #or do the following instead. GameState is for board state MSR is for value of major squares
+                if (self.GameState[i,j] == 1 or self.GameState[i,j] == -1 or self.GameState[i,j] == 0):
+                    #If a Major square is won, lost or stalemate then it is worth 0
+                    self.MajorSquareRank[i,j] = 0
+    def CalculateMiniBoardState(self, mini_board: np.array):
+        ''' calculates the current state of the mini board for Major Square Heuristic'''
+        #if the board is won return 1
+        if self._check_line_playerwise(mini_board, player = 1):
+            return 1
+        #if the board is lost return -1
+        if self._check_line_playerwise(mini_board, player = -1):
+            return -1
+        #if the board has more opponent moves in it return -0.5
+        get_finished = self.get_num_finished(mini_board)
+        #[0] is self, [1] is opponent, [2] is stale
+        if get_finished[1]>get_finished[0]:
+            return -0.5
+        #if the board has more self moves in it return 0.5
+        if(get_finished[1]<get_finished[0]):
+            return 0.5
+        #if the board is a stalemate return 0
+        if(get_finished[2] == 9):
+            return 0
+        #if the board has same amount of opponent moves as self moves return 0.1
+        return 0.1
+
+    def ChooseBestMiniSquare (self, miniBoard: np.array):
+        #look through the mini board and find the best square to play in based on what it does for me.
+        #first check if can make a move that wins me a Major square. Then if it does check to see if winning
+        #that square is valuable or not using CalculateMiniBoardState. If it is valuable play there. If not put in MP Queue
+        #then check other possible moves and see what major square it puts them into. Check the value of those squares
+        #using CalculateMiniBoardState. If it is valuable dont play there. Want to play a move that puts the opponent
+        #in a bad major square. For each, put into the MPQueue. Once all moves are checked, take the move with the
+        #highest value from the MPQueue and play it. 
+        return (0,0)#Temp
+
+
+
     ''' ------------------ bot specific logic ---------------- '''
     
     def heuristic_mini_to_major(self, board_state: np.array,
