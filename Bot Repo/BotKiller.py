@@ -32,12 +32,7 @@ tab10_names = list(mcolors.TABLEAU_COLORS) # create a list of colours
 # The squares are ranked at start and can change based on game state
 
 class BotKiller:
-    '''
-    1) tries to complete lines
-    2) tries to block opponents
-    3) it uses a probability distribution to preferentially play center and corner squares.
-       the prob-dist is also used whenever there are multiple ways to complete/block a line
-    '''
+    #BotKiller
     MPQueue = queue.PriorityQueue() #put values in negative to get max
     #key is value given and the actual value is the move
     ''' ------------------ required function ---------------- '''
@@ -49,6 +44,7 @@ class BotKiller:
         self.box_probs[1,1] = 4 # center
         self.box_probs[0,0] = self.box_probs[0,2] = self.box_probs[2,0] = self.box_probs[2,2] = 2 # corners
         self.MajorSquareRank = np.array([[2,1,2],[1,3,1],[2,1,2]])#middle most valuable, then corners then edges
+        self.InitialMajorSquareRank = np.array([[2,1,2],[1,3,1],[2,1,2]])#middle most valuable, then corners then edges
         #because 4 moves are made before start may be worth anaylizing the board and changing the rank of the squares
         self.GameState = np.zeros((3,3))#State of major boxes. (i.e. the total game state of the board)
     
@@ -56,7 +52,7 @@ class BotKiller:
         ''' wrapper
         apply the logic and returns the desired move
         '''
-        return tuple(self.heuristic_mini_to_major(board_state = board_dict['board_state'],
+        return tuple(self.ChooseBestMajorSquare(board_state = board_dict['board_state'],
                                                   active_box = board_dict['active_box'],
                                                   valid_moves = board_dict['valid_moves']))
     ''' --------- generally useful bot functions ------------ '''
@@ -85,7 +81,7 @@ class BotKiller:
         return self._check_line(box)
     
     def pull_mini_board(self, board_state: np.array, mini_board_index: tuple) -> np.array:
-        ''' extracts a mini board from the 9x9 given the its index'''
+        ''' extracts a mini board from the 9x9 given its index'''
         temp = board_state[mini_board_index[0]*3:(mini_board_index[0]+1)*3,
                            mini_board_index[1]*3:(mini_board_index[1]+1)*3]
         return temp
@@ -183,10 +179,13 @@ class BotKiller:
                     self.MajorSquareRank[i,j] = 0
                 else:
                     self.MajorSquareRank[i,j]+=self.GameState[i,j]#need to test this. See if its any good'''
-                    #or do the following instead. GameState is for board state MSR is for value of major squares
+                    #or do the following instead. GameState is for board state, MSR is for value of major squares
                 if (self.GameState[i,j] == 1 or self.GameState[i,j] == -1 or self.GameState[i,j] == 0):
                     #If a Major square is won, lost or stalemate then it is worth 0
                     self.MajorSquareRank[i,j] = 0
+                else:
+                    #If a Major square is not won, lost or stalemate then it is worth the value of the mini squares * InitialMajorSquareRank
+                    self.MajorSquareRank[i,j] = self.GameState[i,j]*self.InitialMajorSquareRank[i,j]
     def CalculateMiniBoardState(self, mini_board: np.array):
         ''' calculates the current state of the mini board for Major Square Heuristic'''
         #if the board is won return 1
@@ -209,6 +208,11 @@ class BotKiller:
         #if the board has same amount of opponent moves as self moves return 0.1
         return 0.1
 
+        #Look into if the opponent is one move away from winning the mini board. If they are, return -0.5.
+        #Maybe implement a check that checks maybe 5 moves into the future to calculate best move rather then one move
+
+
+
     def ChooseBestMiniSquare (self, miniBoard: np.array):
         #look through the mini board and find the best square to play in based on what it does for me.
         #first check if can make a move that wins me a Major square. Then if it does check to see if winning
@@ -217,6 +221,26 @@ class BotKiller:
         #using CalculateMiniBoardState. If it is valuable dont play there. Want to play a move that puts the opponent
         #in a bad major square. For each, put into the MPQueue. Once all moves are checked, take the move with the
         #highest value from the MPQueue and play it. 
+
+        for i in range(9):
+            if miniBoard[i] == 0:
+                temp_board = miniBoard
+                temp_board[i] = 1
+                MiniBoardState = self.CalculateMiniBoardState(temp_board)
+                self.MPQueue.put((-MiniBoardState, i))#put in negative to get max
+                #check if it wins me a major square
+                #if it does, check if that square is valuable
+                #if it is, play there
+                #if not, put in MPQueue
+                #check other possible moves and see what major square it puts them into
+                #check the value of those squares
+                #if it is valuable dont play there
+                #want to play a move that puts the opponent in a bad major square
+                #for each, put into the MPQueue
+                #once all moves are checked, take the move with the highest value from the MPQueue and play it
+                
+        #return the move with the highest value from the MPQueue
+        Best_Move = self.MPQueue.get()[1]
         return (0,0)#Temp
 
 
