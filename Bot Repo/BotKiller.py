@@ -51,7 +51,11 @@ class BotKiller:
     def move(self, board_dict: dict) -> tuple:
         ''' wrapper
         apply the logic and returns the desired move
+        The tuple being returned is in reference to the 81 squares, so it could be anything from (0,0) to 
+        (8,8) - x column then y row. This avoids ambiguity when a player can play in multiple miniboards 
+        (such as when their opponent sends them to a completed miniboard).
         '''
+        
         return tuple(self.ChooseBestMajorSquare(board_state = board_dict['board_state'],
                                                   active_box = board_dict['active_box'],
                                                   valid_moves = board_dict['valid_moves']))
