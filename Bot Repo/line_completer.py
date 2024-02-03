@@ -1,21 +1,14 @@
-# author: Finn
-# date: nov 18 2023
-# notes: this is an improvement of the "heuristic_bot" that was provided in the "getting started notebook"
-#        this is likely close to the optimal bot that doesn't look at the next mini-board
-
+import numpy as np
 class line_completer_bot:
     '''
-    1) tries to complete lines
-    2) tries to block opponents
-    3) it uses a probability distribution to preferentially play center and corner squares.
-       the prob-dist is also used whenever there are multiple ways to complete/block a line
+    tries to complete lines, otherwise it plays randomly
+    designed to show how to implement a relatively simple strategy
     '''
     
     ''' ------------------ required function ---------------- '''
     
     def __init__(self,name: str = 'Chekhov') -> None:
         self.name = name
-        # define the probability distribution
         self.box_probs = np.ones((3,3)) # edges
         self.box_probs[1,1] = 4 # center
         self.box_probs[0,0] = self.box_probs[0,2] = self.box_probs[2,0] = self.box_probs[2,2] = 2 # corners
@@ -62,32 +55,42 @@ class line_completer_bot:
 
     def get_valid(self, mini_board: np.array) -> np.array:
         ''' gets valid moves in the miniboard'''
-        return np.where(mini_board == 0)
+#        print(mini_board)
+#        print(np.where(mini_board == 0))
+#        return np.where(mini_board == 0)
+        return np.where(abs(mini_board) != 1)
 
     def get_finished(self, board_state: np.array) -> np.array:
         ''' calculates the completed boxes'''
-        opp_boxes = np.zeros((3,3))
         self_boxes = np.zeros((3,3))
+        opp_boxes = np.zeros((3,3))
         stale_boxes = np.zeros((3,3))
         # look at each miniboard separately
         for _r in range(3):
             for _c in range(3):
+                player_finished = False
                 mini_board = self.pull_mini_board(board_state, (_r,_c))
-                self_boxes[_r,_c] = self._check_line_playerwise(mini_board, player = 1)
-                opp_boxes[_r,_c] = self._check_line_playerwise(mini_board, player = -1)
-                if sum(abs(mini_board.flatten())) == 9:
-                    stale_boxes[_r,_c] = 1                   
+                if self._check_line_playerwise(mini_board, player = 1):
+                    self_boxes[_r,_c] = 1
+                    player_finished = True
+                if self._check_line_playerwise(mini_board, player = -1):
+                    opp_boxes[_r,_c] = 1
+                    player_finished = True
+                if (sum(abs(mini_board.flatten())) == 9) and not player_finished:
+                    stale_boxes[_r,_c] = 1
 
         # return finished boxes (separated by their content)
-        return (opp_boxes*-1, self_boxes, stale_boxes)
+        return (self_boxes, opp_boxes, stale_boxes)
     
     def complete_line(self, mini_board: np.array) -> list:
+        if sum(abs(mini_board.flatten())) == 9:
+            print('invalid mini_board') # should never reach here
+        # works as expected, however mini-board sometimes is sometimes invalid
         ''' completes a line if available '''
         # loop through valid moves with hypothetic self position there.
         # if it makes a line it's an imminent win
         imminent = list()
         valid_moves = self.get_valid(mini_board)
-        
         for _valid in zip(*valid_moves):
             # create temp valid pattern
             valid_filter = np.zeros((3,3))
@@ -98,21 +101,23 @@ class line_completer_bot:
     
     def get_probs(self, valid_moves: list) -> np.array:
         ''' match the probability with the valid moves to weight the random choice '''
+        valid_moves = np.array(valid_moves)
         probs = list()
-        for _valid in valid_moves:
+        for _valid in np.array(valid_moves).reshape(-1,2):
+            
             probs.append(self.box_probs[_valid[0],_valid[1]])
         probs /= sum(probs) # normalize
         return probs
     
     ''' ------------------ bot specific logic ---------------- '''
     
-    def heuristic_mini_to_major(self, board_state: np.array,
+    def heuristic_mini_to_major(self,
+                                board_state: np.array,
                                 active_box: tuple,
                                 valid_moves: list) -> tuple:
         '''
         either applies the heuristic to the mini-board or selects a mini-board (then applies the heuristic to it)
         '''
-
         if active_box != (-1,-1):
             # look just at the mini board
             mini_board = self.pull_mini_board(board_state, active_box)
@@ -123,8 +128,12 @@ class line_completer_bot:
                     move[1] + 3 * active_box[1])
 
         else:
+        #    print(np.array(valid_moves).shape) # sometimes the miniboard i'm sent to has no valid moves
+        
             # use heuristic on finished boxes to select which box to play in
             imposed_active_box = self.major_heuristic(board_state)
+#            print(self.pull_mini_board(board_state, imposed_active_box),'\n')
+#            print('\n')
 
             # call this function with the self-imposed active box
             return self.heuristic_mini_to_major(board_state = board_state,
@@ -142,38 +151,50 @@ class line_completer_bot:
         self_boxes  = z[0]
         opp_boxes   = z[1]
         stale_boxes = z[2]
+#        print('self:\n',self_boxes)
+#        print('opp :\n',opp_boxes)
+#        print('stale:\n',stale_boxes)
         
-        # identify imminent wins for self
+        # ----- identify imminent wins -----
         imminent_wins = self.complete_line(self_boxes)
-        
-        # make new list to remove imminent wins that point to stale boxes
-        stale_boxes = zip(*np.where(stale_boxes))
-        for stale_box in stale_boxes:
+#        print('len imminent win:',len(imminent_wins))
+        # remove imminent wins that point to stale boxes (or opponent)
+        stale_boxes_idxs = zip(*np.where(stale_boxes))
+        for stale_box in stale_boxes_idxs:
             if stale_box in imminent_wins:
                 imminent_wins.remove(stale_box)
-        if len(imminent_wins) > 0:
-            return imminent_wins[np.random.choice(len(imminent_wins), p=self.get_probs(imminent_wins))]
-        
-        # attempt to block
-        imminent_wins = self.complete_line(opp_boxes)
-        # make new list to remove imminent wins that point to stale boxes
-        stale_boxes = zip(*np.where(stale_boxes))
-        for stale_box in stale_boxes:
-            if stale_box in imminent_wins:
-                imminent_wins.remove(stale_box)
-        if len(imminent_wins) > 0:
+        opp_boxes_idx = zip(*np.where(opp_boxes))
+        for opp_box in opp_boxes_idx:
+            if opp_box in imminent_wins:
+                imminent_wins.remove(opp_box)
+        # if it can complete a line, do it
+        if len(imminent_wins) > 0: 
+#            print('returning line')
+#            print('len imminent win:',len(imminent_wins))
             return imminent_wins[np.random.choice(len(imminent_wins), p=self.get_probs(imminent_wins))]
 
-        # else take random
-        internal_valid = list(zip(*self.get_valid(self_boxes + opp_boxes)))
-        return internal_valid[np.random.choice(len(internal_valid), p=self.get_probs(valid_moves))]
+        # ------ attempt to block -----
+        imminent_loss = self.complete_line(opp_boxes)
+        # make new list to remove imminent wins that point to stale boxes
+        stale_boxes_idx = zip(*np.where(stale_boxes))
+        for stale_box in stale_boxes_idx:
+            if stale_box in imminent_loss:
+                imminent_loss.remove(stale_box)
+        self_boxes_idx = zip(*np.where(self_boxes))
+        for self_box in self_boxes_idx:
+            if self_box in imminent_loss:
+                imminent_loss.remove(self_box)
+        if len(imminent_loss) > 0:
+#            print('returning block')
+            return imminent_loss[np.random.choice(len(imminent_loss), p=self.get_probs(imminent_loss))]
+
+        # ------ else take random ------
+#        print('returning random')
+        internal_valid = np.array(list(zip(*self.get_valid(self_boxes + opp_boxes + stale_boxes))))
+        return tuple(internal_valid[np.random.choice(len(internal_valid), p=self.get_probs(internal_valid))])
         
     def mid_heuristic(self, mini_board: np.array) -> tuple:
-        ''' main mini-board logic
-        attempt to finish the box (biases to center and corners)
-        attempt to block opponent (again, with bias)
-        randomly take a move (with bias)
-        '''
+        ''' main mini-board logic '''
         # try to complete a line on this miniboard
         imminent_wins = self.complete_line(mini_board)
         if len(imminent_wins) > 0:
@@ -185,6 +206,6 @@ class line_completer_bot:
             return imminent_wins[np.random.choice(len(imminent_wins))]
 
         # else play randomly
-        valid_moves = list(zip(*self.get_valid(mini_board)))
-        return valid_moves[np.random.choice(len(valid_moves), p=self.get_probs(valid_moves))]
+        valid_moves = np.array(list(zip(*self.get_valid(mini_board))))
+        return tuple(valid_moves[np.random.choice(len(valid_moves), p=self.get_probs(valid_moves))])
 
