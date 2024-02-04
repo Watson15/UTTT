@@ -2,7 +2,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import queue
-from bigtree import Node
 
 ''' development imports'''
 from time import perf_counter
@@ -35,7 +34,6 @@ tab10_names = list(mcolors.TABLEAU_COLORS) # create a list of colours
 class BotKiller:
     #BotKiller
     MPQueue = queue.PriorityQueue() #put values in negative to get max
-    root = Node
     #key is value given and the actual value is the move
     ''' ------------------ required function ---------------- '''
     
@@ -154,13 +152,26 @@ class BotKiller:
     def ChooseBestMajorSquare (self, board_state: np.array, active_box: tuple, valid_moves: list):
         ''' chooses the best major square to play in based on the current board state'''
         # if the active box is not the whole board
+        #print(valid_moves)
+        #print("Active box:",active_box)
         if active_box != (-1,-1):
             # look just at the mini board
+            #print("MiniBoard")
+            #print(board_state.shape)
+            #print("Active Box:",active_box)
             mini_board = self.pull_mini_board(board_state, active_box)
             # look using the logic, select a move
-            self.CalculateBoardState(board_state)#To recalculate the board state
-            move = self.ChooseBestMiniSquare(mini_board)
+            #print("Before move miniboard:",mini_board)
+            move = self.ChooseBestMiniSquare(mini_board,valid_moves,active_box,board_state)
+            #print("after move:", move)
+            #print("active box:", active_box)
+            #print("adding move and active", move[0] + 3 * active_box[0])
             # project back to original board space
+            Best_Move = (move[0] + 3 * active_box[0],
+                    move[1] + 3 * active_box[1])
+            #print("mini board:",mini_board)
+            #print("valid moves:",valid_moves)
+            #print("best move is:",Best_Move)
             return (move[0] + 3 * active_box[0],
                     move[1] + 3 * active_box[1])
 
@@ -172,9 +183,12 @@ class BotKiller:
             return self.ChooseBestMajorSquare(board_state = board_state,
                                                 active_box = imposed_active_box,
                                                 valid_moves = valid_moves)
-
+        
     def CalculateBoardState(self, board_state: np.array):
         ''' calculates the current state of the board for Major Square Heuristic'''
+        best_case = [1,1]
+        HighestRank = -90
+        #print("board state:",board_state)
         for i in range(3):
             for j in range(3):
                 self.GameState[i,j] = self.CalculateMiniBoardState(self.pull_mini_board(board_state, (i,j)))
@@ -187,41 +201,96 @@ class BotKiller:
                 else:
                     self.MajorSquareRank[i,j]+=self.GameState[i,j]#need to test this. See if its any good'''
                     #or do the following instead. GameState is for board state, MSR is for value of major squares
-                if (self.GameState[i,j] == 1 or self.GameState[i,j] == -1 or self.GameState[i,j] == 0):
+                if (self.GameState[i,j] == 2 or self.GameState[i,j] == -2 or self.GameState[i,j] == 0):
                     #If a Major square is won, lost or stalemate then it is worth 0
-                    self.MajorSquareRank[i,j] = 0
+                    self.MajorSquareRank[i,j] = -100
                 else:
                     #If a Major square is not won, lost or stalemate then it is worth the value of the mini squares * InitialMajorSquareRank
                     self.MajorSquareRank[i,j] = self.GameState[i,j]*self.InitialMajorSquareRank[i,j]
-                    
+                    if(self.MajorSquareRank[i,j]>HighestRank):
+                        HighestRank = self.MajorSquareRank[i,j]
+                        best_case = [i,j]
+                        #print("HR: i,j:",i,j)
+                        #print("Highets Rank:",HighestRank)
+        
+        return tuple(best_case)
+        
+
     def CalculateMiniBoardState(self, mini_board: np.array):
         ''' calculates the current state of the mini board for ChooseBestMiniSquare'''
-        #if the board is won return 1
+        #if the board is won return 2
         if self._check_line_playerwise(mini_board, player = 1):
-            return 1
-        #if the board is lost return -1
+            return 2
+        #if the board is lost return -2
         if self._check_line_playerwise(mini_board, player = -1):
+            return -2
+        #if the board has more opponent moves in it return -1
+        get_finished = self.get_num_finished(mini_board)
+        #[0] is self, [1] is opponent, [2] is stale
+        if get_finished[1]>get_finished[0]:
             return -1
+        #if the board has more self moves in it return 1
+        if(get_finished[1]<get_finished[0]):
+            return 1
+        #if the board is a stalemate return 0
+        if(get_finished[2] == 9):
+            return 0
+        #if the board has same amount of opponent moves as self moves return 0.5
+        return 0.5
+        
+
+    def EnemyWinMove(self, mini_board: np.array):
+        ''' checks if the enemy has a winning move in the mini board'''
+        for i in range(3):
+            for j in range(3):
+                temp_board = mini_board.copy()
+                temp_board[i,j] = -1
+                if self._check_line_playerwise(temp_board, player = -1):
+                    return True
+            return False
+
+    def CalculateMiniBoardStateEnemy(self, mini_board: np.array):
+        ''' calculates the current state of the mini board for ChooseBestMiniSquare'''
+        if(self.EnemyWinMove(mini_board)):
+            return -2
+        get_finished = self.get_num_finished(mini_board)
+        if(get_finished[2] == 9 or self._check_line_playerwise(mini_board, player = 1) or self._check_line_playerwise(mini_board, player = -1)):
+            return -2
+        else:
+            return 0
+        
+        
+        #if the board is won return 1
+        if self._check_line_playerwise(mini_board, player = -1):
+            return 2
+        #if the board is lost return -1
+        if self._check_line_playerwise(mini_board, player = 1):
+            return -2
         #if the board has more opponent moves in it return -0.5
         get_finished = self.get_num_finished(mini_board)
         #[0] is self, [1] is opponent, [2] is stale
         if get_finished[1]>get_finished[0]:
-            return -0.5
+            return -1
         #if the board has more self moves in it return 0.5
         if(get_finished[1]<get_finished[0]):
-            return 0.5
+            return 1
         #if the board is a stalemate return 0
         if(get_finished[2] == 9):
             return 0
         #if the board has same amount of opponent moves as self moves return 0.1
-        return 0.1
-
-        #Look into if the opponent is one move away from winning the mini board. If they are, return -0.5.
-        #Maybe implement a check that checks maybe 5 moves into the future to calculate best move rather then one move
+        return 0.5
 
 
+    def MoveOutcome(self, board_state: np.array, move: tuple,active_box: tuple):
+        ''' calculates the outcome of a move'''
+        temp_board_state = board_state.copy()
+        temp_board_state[move[0] + 3 * active_box[0],move[1] + 3 * active_box[1]] = 1
+        temp_board = self.pull_mini_board(temp_board_state, move)
 
-    def ChooseBestMiniSquare (self, miniBoard: np.array):
+        return self.CalculateMiniBoardStateEnemy(temp_board)
+
+
+    def ChooseBestMiniSquare (self, miniBoard: np.array,valid_moves,active_box,board_state):
         #look through the mini board and find the best square to play in based on what it does for me.
         #first check if can make a move that wins me a Major square. Then if it does check to see if winning
         #that square is valuable or not using CalculateMiniBoardState. If it is valuable play there. If not put in MP Queue
@@ -229,15 +298,22 @@ class BotKiller:
         #using CalculateMiniBoardState. If it is valuable dont play there. Want to play a move that puts the opponent
         #in a bad major square. For each, put into the MPQueue. Once all moves are checked, take the move with the
         #highest value from the MPQueue and play it. 
-        Best_Move = [0,0]
+        #print("miniBoard:",miniBoard)
+        #print("miniBoard:",miniBoard)
         for i in range(3):
                 for j in range (3):
-                    #print(miniBoard)
+                    #print("MB:",miniBoard)
                     if miniBoard[i,j] == 0:
-                        temp_board = miniBoard
+                        #print("i,j:",i,j)
+                        #print("MB[ij]:",miniBoard[i,j])
+                        temp_board = miniBoard.copy()
                         temp_board[i,j] = 1
+                        #print("miniBoard:",miniBoard)
+                        #print("temp_board:",temp_board)
                         MiniBoardState = self.CalculateMiniBoardState(temp_board)
-                        self.MPQueue.put((-MiniBoardState, i,j))#put in negative to get max
+                        MiniBoardState+=self.MoveOutcome(board_state, (i,j),active_box)
+                        #print("MiniBoardState:",MiniBoardState)
+                        self.MPQueue.put((-MiniBoardState, (i,j)))#put in negative to get max
                         #check if it wins me a major square
                         #if it does, check if that square is valuable
                         #if it is, play there
@@ -250,8 +326,16 @@ class BotKiller:
                         #once all moves are checked, take the move with the highest value from the MPQueue and play it
                     
         #return the move with the highest value from the MPQueue
-        Best_Move[0] = self.MPQueue.get()[1]
-        Best_Move[1] = self.MPQueue.get()[2]
-        self.MPQueue.queue.clear()
-        return Best_Move#Temp
+        Best_Move = [0,0]
+        if(self.MPQueue.empty()):
+            #print("MPQueue is empty")
+            Best_Move[0] = valid_moves[0][0] - 3 * active_box[0]
+            Best_Move[1] = valid_moves[0][1] - 3 * active_box[1]
+        else:
+            #print("MPQueue:",self.MPQueue.queue)
+            Best_Move = self.MPQueue.get()[1]
+            #print("bestMove:",Best_Move)
+            #print("valid moves:",valid_moves)
+            self.MPQueue = queue.PriorityQueue()
+        return Best_Move
 
